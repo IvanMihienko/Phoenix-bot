@@ -28,6 +28,12 @@ async function loadAndStartTest(ctx, testName) {
             testName,
             results: Array(questions.length).fill(0),
             messageId: null,
+            channelScores: questions.reduce((acc, question) => {
+                if (!acc[question.channel]) {
+                    acc[question.channel] = 0;
+                }
+                return acc;
+            }, {})
         };
 
         await startTest(ctx, questions);
@@ -106,9 +112,7 @@ async function handleAnswer(ctx) {
     const answer = currentQuestion.options.find(opt => opt.id === userAnswer);
     const answerValue = currentQuestion.options.indexOf(answer); // Значения: 0, 1, 2, 3
 
-    // Логируем выбор пользователя
-    const channelIndex = Math.floor(currentIndex / 7) + 1;
-    console.log(`Пользователь ${ctx.from?.id} выбрал: ${answer?.text} (Баллы: ${answerValue}), канал: ${channelIndex}`);
+    console.log(`Пользователь ${ctx.from?.id} выбрал: ${answer?.text} (Баллы: ${answerValue}), канал: ${currentQuestion.channel}`);
 
     results[currentIndex] = answerValue;
 
@@ -129,31 +133,28 @@ async function handleAnswer(ctx) {
  */
 async function calculateAndSendResults(ctx) {
     const testSession = ctx.session.currentTest;
-    const { results } = testSession;
+    const { results, questions } = testSession;
 
-    // Распределяем результаты по каналам
-    const channel1 = results.slice(0, 7).reduce((sum, val) => sum + val, 0);
-    const channel2 = results.slice(7, 14).reduce((sum, val) => sum + val, 0);
-    const channel3 = results.slice(14, 21).reduce((sum, val) => sum + val, 0);
-    const channel4 = results.slice(21, 28).reduce((sum, val) => sum + val, 0);
-    const channel5 = results.slice(28, 35).reduce((sum, val) => sum + val, 0);
-    const channel6 = results.slice(35, 42).reduce((sum, val) => sum + val, 0);
-    const channel7 = results.slice(42, 49).reduce((sum, val) => sum + val, 0);
+    // Группируем результаты по каналам
+    const channelScores = {};
 
-    const maxPointsPerChannel = 7 * 3; // Максимум баллов на канал
+    questions.forEach((question, index) => {
+        const channel = question.channel;
+        if (!channelScores[channel]) {
+            channelScores[channel] = 0;
+        }
+        channelScores[channel] += results[index];
+    });
 
-    const channelResults = [
-        { name: '🌍 Связь с материей', value: channel1 },
-        { name: '🍎 Желания и наслаждения', value: channel2 },
-        { name: '💪 Воля и уверенность', value: channel3 },
-        { name: '🌹 Любовь', value: channel4 },
-        { name: '💎 Искренность', value: channel5 },
-        { name: '🧘 Управление вниманием', value: channel6 },
-        { name: '✨ Связь с Богом', value: channel7 },
-    ];
+    const maxPointsPerChannel = 7 * 3; // Максимум баллов на канал (предполагаем 7 вопросов на канал)
+
+    const channelResults = Object.entries(channelScores).map(([channel, score]) => ({
+        name: channel,
+        activation: Math.round((score / maxPointsPerChannel) * 100)
+    }));
 
     const resultMessage = channelResults
-        .map(({ name, value }) => `${name}: ${Math.round((value / maxPointsPerChannel) * 100)}%`)
+        .map(({ name, activation }) => `${name}: ${activation}%`)
         .join('\n');
 
     await ctx.reply(`Результаты теста:\n${resultMessage}`);
