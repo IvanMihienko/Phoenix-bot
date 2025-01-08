@@ -3,6 +3,17 @@ const { createMainKeyboard, createListTestKeyboard, createTestCompletionKeyboard
 const { getTestFiles } = require('../getTestFiles');
 const { InlineKeyboard } = require('grammy');
 
+// Определяем отображаемые имена каналов
+const channelNames = {
+    "1": "🌲 Связь с материей",
+    "2": "🍎 Желания и наслаждения",
+    "3": "💪 Воля и уверенность",
+    "4": "❤️ Любовь",
+    "5": "💎 Искренность",
+    "6": "🧘 Управление вниманием",
+    "7": "✨ Связь с Богом"
+};
+
 /**
  * Загружает тест и инициализирует его для пользователя.
  * @param {Object} ctx - Контекст выполнения команды.
@@ -44,10 +55,38 @@ async function loadAndStartTest(ctx, testName) {
 }
 
 /**
- * Инициализирует тест и отправляет первый вопрос.
+ * Рассчитывает и отправляет результаты теста.
  * @param {Object} ctx - Контекст выполнения команды.
- * @param {Array} questions - Массив вопросов для теста.
  */
+async function calculateAndSendResults(ctx) {
+    const testSession = ctx.session.currentTest;
+    const { results, questions } = testSession;
+
+    // Группируем результаты по каналам
+    const channelScores = {};
+
+    questions.forEach((question, index) => {
+        const channel = question.channel;
+        if (!channelScores[channel]) {
+            channelScores[channel] = 0;
+        }
+        channelScores[channel] += results[index];
+    });
+
+    const maxPointsPerChannel = 7 * 3; // Максимум баллов на канал
+
+    const resultMessage = Object.keys(channelNames)
+        .map((channelKey) => {
+            const score = channelScores[channelKey] || 0; // Если канал отсутствует, выставляем 0
+            const activation = Math.round((score / maxPointsPerChannel) * 100);
+            return `${channelNames[channelKey]}: ${activation}%`;
+        })
+        .join('\n');
+
+    await ctx.reply(`Результаты теста:\n\n${resultMessage}`);
+}
+
+/** Остальная часть кода остаётся без изменений */
 async function startTest(ctx, questions) {
     console.log(`startTest: Инициализация теста для пользователя ${ctx.from?.id}`);
     if (!ctx.session) {
@@ -66,23 +105,17 @@ async function startTest(ctx, questions) {
     // Отправляем клавиатуру для завершения теста
     await ctx.reply(`Начат тест ${testName}`, {
         reply_markup: createTestCompletionKeyboard(),
-    });  
-  
+    });
+
     await sendQuestion(ctx);
-    
 }
 
-/**
- * Отправляет текущий вопрос пользователю.
- * Если сообщение уже существует, оно редактируется.
- * @param {Object} ctx - Контекст выполнения команды.
- */
 async function sendQuestion(ctx) {
     const testSession = ctx.session.currentTest;
     const { questions, currentIndex } = testSession;
     const currentQuestion = questions[currentIndex];
 
-    const questionText = `Вопрос ${currentIndex + 1} / ${questions.length}\n\n<b>${currentQuestion.question}</b>\n\n${currentQuestion.options.map((opt, index) => `${String.fromCharCode(65 + index)}. ${opt.text}`).join('\n')}`;
+    const questionText = `Вопрос ${currentIndex + 1} / ${questions.length}\n\n<b>${currentQuestion.question}</b>\n\n${currentQuestion.options.map((opt, index) => `${String.fromCharCode(65 + index)}. ${opt.text}\n\n`).join('')}`;
     const keyboard = createDynamicInlineKeyboard(currentQuestion.options);
 
     if (testSession.messageId) {
@@ -99,10 +132,6 @@ async function sendQuestion(ctx) {
     }
 }
 
-/**
- * Обрабатывает ответ пользователя на вопрос.
- * @param {Object} ctx - Контекст выполнения команды.
- */
 async function handleAnswer(ctx) {
     const testSession = ctx.session.currentTest;
     const { questions, currentIndex, results } = testSession;
@@ -127,43 +156,6 @@ async function handleAnswer(ctx) {
     await ctx.answerCallbackQuery();
 }
 
-/**
- * Рассчитывает и отправляет результаты теста.
- * @param {Object} ctx - Контекст выполнения команды.
- */
-async function calculateAndSendResults(ctx) {
-    const testSession = ctx.session.currentTest;
-    const { results, questions } = testSession;
-
-    // Группируем результаты по каналам
-    const channelScores = {};
-
-    questions.forEach((question, index) => {
-        const channel = question.channel;
-        if (!channelScores[channel]) {
-            channelScores[channel] = 0;
-        }
-        channelScores[channel] += results[index];
-    });
-
-    const maxPointsPerChannel = 7 * 3; // Максимум баллов на канал (предполагаем 7 вопросов на канал)
-
-    const channelResults = Object.entries(channelScores).map(([channel, score]) => ({
-        name: channel,
-        activation: Math.round((score / maxPointsPerChannel) * 100)
-    }));
-
-    const resultMessage = channelResults
-        .map(({ name, activation }) => `${name}: ${activation}%`)
-        .join('\n');
-
-    await ctx.reply(`Результаты теста:\n${resultMessage}`);
-}
-
-/**
- * Обрабатывает завершение теста.
- * @param {Object} ctx - Контекст выполнения команды.
- */
 async function handleTestCompletion(ctx) {
     delete ctx.session.currentTest; // Удаляем текущую сессию теста
     setState(ctx, 'IDLE'); // Сбрасываем состояние
@@ -173,11 +165,6 @@ async function handleTestCompletion(ctx) {
     });
 }
 
-/**
- * Создаёт динамическую клавиатуру для вариантов ответа.
- * @param {Array} options - Варианты ответа.
- * @returns {InlineKeyboard} Динамическая inline клавиатура.
- */
 function createDynamicInlineKeyboard(options) {
     const keyboard = new InlineKeyboard();
     options.forEach((opt, index) => {
@@ -186,10 +173,6 @@ function createDynamicInlineKeyboard(options) {
     return keyboard;
 }
 
-/**
- * Отображает список доступных тестов.
- * @param {Object} ctx - Контекст выполнения команды.
- */
 async function handlePoll(ctx) {
     console.log(`handlePoll: Отображение списка тестов для пользователя ${ctx.from?.id}`);
     const testFiles = getTestFiles();
