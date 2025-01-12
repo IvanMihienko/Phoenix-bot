@@ -1,10 +1,33 @@
 const { createMainKeyboard } = require('./keyboard');
 
 const STATES = new Map([
-    ['IDLE', { name: 'IDLE', allowedMessageTypes: ['text', 'location'] }],
+    ['IDLE', { name: 'IDLE', allowedMessageTypes: ['text', 'location', 'callback_query'] }],
     ['TESTING', { name: 'TESTING', allowedMessageTypes: ['text', 'callback_query'] }],
     ['REGISTRATION', { name: 'REGISTRATION', allowedMessageTypes: ['text', 'location', 'photo'] }],
 ]);
+
+/**
+ * Определяет тип сообщения.
+ * @param {Object} ctx - Контекст выполнения команды.
+ * @returns {string} Тип сообщения (например, text, location, photo, callback_query, unknown).
+ */
+function determineMessageType(ctx) {
+    return ctx.message?.text
+    ? 'text'
+    : ctx.message?.location
+    ? 'location'
+    : ctx.message?.photo
+    ? 'photo'
+    : ctx.message?.audio
+    ? 'audio'
+    : ctx.message?.video
+    ? 'video'
+    : ctx.message?.document
+    ? 'document'
+    : ctx.callbackQuery
+    ? 'callback_query'
+    : 'unknown';
+}
 
 /**
  * Устанавливает состояние для текущего пользователя.
@@ -32,15 +55,7 @@ function setState(ctx, newState) {
  */
 function isAllowedMessageType(ctx) {
     const currentState = ctx.session?.state || 'IDLE';
-    const messageType = ctx.message?.text
-        ? 'text'
-        : ctx.message?.location
-        ? 'location'
-        : ctx.message?.photo
-        ? 'photo'
-        : ctx.callbackQuery
-        ? 'callback_query'
-        : 'unknown';
+    const messageType = determineMessageType(ctx);
 
     console.log(`isAllowedMessageType: Проверяем тип сообщения "${messageType}" в состоянии "${currentState}"`);
 
@@ -50,7 +65,12 @@ function isAllowedMessageType(ctx) {
         return false;
     }
 
-    return stateConfig.allowedMessageTypes.includes(messageType); // Проверяем, разрешён ли тип сообщения
+    if (!stateConfig.allowedMessageTypes.includes(messageType)) {
+        console.warn(`isAllowedMessageType: Неожиданный тип сообщения "${messageType}" в состоянии "${currentState}".`);
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -59,22 +79,14 @@ function isAllowedMessageType(ctx) {
 function stateFilterMiddleware() {
     return async (ctx, next) => {
         const currentState = ctx.session?.state || 'IDLE';
-        const messageType = ctx.message?.text
-        ? 'text'
-        : ctx.message?.location
-        ? 'location'
-        : ctx.message?.photo
-        ? 'photo'
-        : ctx.callbackQuery
-        ? 'callback_query'
-        : 'unknown';
+        const messageType = determineMessageType(ctx);
 
         console.log(`stateFilterMiddleware: Проверка сообщения типа "${messageType}" в состоянии "${currentState}"`);
 
         const stateConfig = STATES.get(currentState);
 
         if (!stateConfig) {
-            console.error(`stateFilterMiddleware: Неизвестное состояние "${currentState}". Сбрасываем на IDLE.`);
+            console.error(`stateFilterMiddleware: Неизвестное состояние "${currentState}" для пользователя ${ctx.from?.id}. Сбрасываем на IDLE.`);
             setState(ctx, 'IDLE');
             await ctx.reply('Ваше состояние недействительно. Возвращаем в главное меню.', {
                 reply_markup: createMainKeyboard(),
@@ -97,4 +109,5 @@ module.exports = {
     setState,
     isAllowedMessageType,
     stateFilterMiddleware,
+    determineMessageType,
 };

@@ -1,4 +1,16 @@
 const { Keyboard } = require('grammy');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Загружает список счётчиков из JSON файла.
+ * @returns {Array<Object>} Массив объектов счётчиков.
+ */
+function loadCounters() {
+    const filePath = path.join(__dirname, 'CountersList.json');
+    const data = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(data).counters;
+}
 
 /**
  * Создает главную клавиатуру.
@@ -7,7 +19,7 @@ const { Keyboard } = require('grammy');
 function createMainKeyboard() {
     return new Keyboard()
         .text("📋 Профиль").text("🗂 Задания").row()
-        .text("📊 Пройти опрос").row()
+        .text("📊 Пройти опрос").text("🧮 Счётчик Побед").row()
         .resized();
 }
 
@@ -58,13 +70,29 @@ function createListTestKeyboard(testFiles) {
 
 /**
  * Создает клавиатуру с кнопкой отправки местоположения.
- * @param {Array<string>} testFiles - Список названий тестов.
- * @returns {Keyboard} Клавиатура со списком тестов.
+ * @returns {Keyboard} Клавиатура с кнопкой отправки местоположения.
  */
 function createLocationButton() {
     return new Keyboard()
-    .requestLocation("📍 Поделиться местоположением").row()
-    .resized();
+        .requestLocation("📍 Поделиться местоположением").row()
+        .resized();
+}
+
+/**
+ * Создает клавиатуру для раздела "Счётчик побед".
+ * @returns {Keyboard} Клавиатура для раздела "Счётчик побед".
+ */
+function createCountersKeyboard() {
+    const counters = loadCounters();
+    const keyboard = new Keyboard();
+
+    counters.forEach(counter => {
+        keyboard.text(counter.name).row();
+    });
+
+    keyboard.text("🏠 Назад в меню").row();
+
+    return keyboard.resized();
 }
 
 module.exports = {
@@ -74,4 +102,6 @@ module.exports = {
     createTestCompletionKeyboard,
     createListTestKeyboard,
     createLocationButton,
+    createCountersKeyboard,
+    loadCounters
 };

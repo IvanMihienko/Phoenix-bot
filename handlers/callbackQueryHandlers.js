@@ -3,19 +3,6 @@
 const { STATES, setState, isState } = require('../stateManager');
 const { createMainKeyboard } = require('../keyboard');
 
-// Объект маршрутов для callback_query
-const callbackHandlers = {
-    end_test: async (ctx) => {
-        // Завершаем тест и сбрасываем состояние
-        delete ctx.session.currentTest;
-        resetState(ctx);
-
-        await ctx.reply("Тест был завершён. Возвращаем вас в главное меню.", {
-            reply_markup: createMainKeyboard()
-        });
-    },
-};
-
 /**
  * Универсальный обработчик callback_query.
  * @param {Object} ctx - Контекст выполнения команды.

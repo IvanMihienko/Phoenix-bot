@@ -1,10 +1,13 @@
 const { Router } = require('@grammyjs/router');
 const { STATES, stateFilterMiddleware } = require('./stateManager');
-const { createMainKeyboard } = require('./keyboard');
+const { createMainKeyboard, createCountersKeyboard, loadCounters } = require('./keyboard');
 const { handleStart, sendUserProfile, handleLocation } = require('./handlers/userHandlers');
 const { editOrReply, handleTasks, handleSettings, handleBackToMenu, handleAchievements, handleRating } = require('./handlers/generalHandlers');
 const { handlePoll, handleAnswer, handleTestCompletion, loadAndStartTest } = require('./handlers/testHandlers');
 const { getTestFiles } = require('./getTestFiles');
+const { handleCounterCallback, ensureCounterExists, handleCouners, createCounterKeyboard } = require('./counters');
+const path = require('path');
+const fs = require('fs');
 
 // Центральная конфигурация маршрутов для каждого состояния
 const stateRoutes = {
@@ -18,6 +21,7 @@ const stateRoutes = {
         achievements: { text: '🏆 Достижения', handler: handleAchievements },
         rating: { text: '📊 Рейтинг', handler: handleRating },
         poll: { text: '📊 Пройти опрос', handler: handlePoll },
+        counters: { text: '🧮 Счётчик Побед', handler: handleCouners },
     },
     TESTING: {
         completeTest: { text: '✅ Завершить тест', handler: handleTestCompletion },
@@ -27,6 +31,22 @@ const stateRoutes = {
         start: { command: '/start', handler: handleStart },
     },
 };
+
+// Загрузка счётчиков из JSON-файла
+const countersRoutes = loadCounters();
+
+countersRoutes.forEach(({ name, id }) => {
+    stateRoutes.IDLE[id] = {
+        text: name,
+        handler: async (ctx) => {
+            const user = await ensureCounterExists(ctx.db, ctx.from.id, id);
+            const currentValue = user.counters[id] || 0;
+            await ctx.reply(`Счётчик "${name}": ${currentValue}`, {
+                reply_markup: createCounterKeyboard(id, currentValue),
+            });
+        },
+    };
+});
 
 // Динамическое добавление маршрутов для тестов
 getTestFiles().forEach((testName) => {
@@ -89,12 +109,13 @@ Object.entries(stateRoutes).forEach(([state, routes]) => {
     });
 });
 
-// Обработка неизвестных сообщений
+// Обработка callback_query в router.otherwise
 router.otherwise(stateFilterMiddleware(), async (ctx) => {
     const telegramId = ctx.from?.id;
     const userState = ctx.session?.state || 'IDLE';
 
     console.log(`Обработка неизвестного сообщения от пользователя ${ctx.from?.id || 'неизвестный'} в состоянии: ${userState}`);
+
 
     // Обработка состояния REGISTRATION
     if (userState === 'REGISTRATION') {
@@ -107,6 +128,11 @@ router.otherwise(stateFilterMiddleware(), async (ctx) => {
     if (userState === 'IDLE' && ctx.message?.location) {
         console.log(`Обработка локации для пользователя ${telegramId} в состоянии IDLE`);
         await handleLocation(ctx);
+        return;
+    }
+    if (userState === 'IDLE' && ctx.callbackQuery) {
+        console.log(`Обработка callback_query: ${ctx.callbackQuery.data} для пользователя ${ctx.from?.id}`);
+        await handleCounterCallback(ctx);
         return;
     }
 

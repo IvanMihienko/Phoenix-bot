@@ -4,6 +4,7 @@ const { session } = require('grammy');
 const { connectToDatabase, closeDatabaseConnection } = require('./db');
 const router = require('./routes');
 const { handleCallbackQuery } = require('./handlers/callbackQueryHandlers');
+const { handleCounterCallback } = require('./counters');
 const { STATES } = require('./stateManager');
 
 dotenv.config();
@@ -42,16 +43,45 @@ async function gracefulShutdown(signal, bot) {
         bot.use(async (ctx, next) => {
             ctx.db = db;
             if (!ctx.state) {
-                ctx.state = STATES.IDLE; // Установка начального состояния
+                const user = await db.collection('users').findOne({ telegramId: ctx.from.id });
+                ctx.state = user && user.state ? user.state : STATES.IDLE; // Восстановление состояния из БД или установка IDLE
+                console.log(`Начальное состояние для пользователя ${ctx.from.id}: ${ctx.state}`);
             }
             return next();
         });
 
         // Подключение маршрутов
-        bot.use(router); // Используем router напрямую
+        bot.use(async (ctx, next) => {
+            console.log(`Обработка сообщения: ${ctx.message?.text || 'Нет текста'} от пользователя ${ctx.from?.id || 'Неизвестный'}`);
+            return router.middleware()(ctx, next);
+        });
 
         // Обработка callback_query
-        bot.on('callback_query:data', handleCallbackQuery);
+        bot.on('callback_query:data', async (ctx) => {
+            const callbackData = ctx.callbackQuery.data;
+            console.log(`Получен callback_query от пользователя ${ctx.from.id}: ${callbackData}`);
+
+            // Проверяем, связано ли callbackQuery с подсчётом
+            if (callbackData.match(/_(increment|decrement)/)) {
+                console.log(`Обработка callbackQuery для счётчика: ${callbackData}`);
+                try {
+                    await handleCounterCallback(ctx);
+                    console.log(`Обработка callbackQuery успешно завершена: ${callbackData}`);
+                } catch (error) {
+                    console.error(`Ошибка при обработке callbackQuery для счётчика: ${callbackData}`, error);
+                }
+                return;
+            }
+
+            // Обработка других callbackQuery
+            console.log(`Обработка callbackQuery через общий обработчик: ${callbackData}`);
+            try {
+                await handleCallbackQuery(ctx);
+                console.log(`Обработка общего callbackQuery завершена: ${callbackData}`);
+            } catch (error) {
+                console.error(`Ошибка при обработке общего callbackQuery: ${callbackData}`, error);
+            }
+        });
 
         // Обработка ошибок
         bot.catch((err) => {
